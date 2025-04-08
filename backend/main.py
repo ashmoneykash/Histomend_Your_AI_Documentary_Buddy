@@ -4,7 +4,7 @@ from googleapiclient.discovery import build
 app = Flask(__name__)
 
 # 🔑 Replace this with your actual API key
-YOUTUBE_API_KEY = "YOUR_API_KEY"
+YOUTUBE_API_KEY = "AIzaSyB0W8aYkkLfKa9ZacjKX0nO4HFWBmJXogs"
 
 def search_youtube(query, max_results=5):
     youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
