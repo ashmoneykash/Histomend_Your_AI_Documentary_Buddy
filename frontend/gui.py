@@ -1,124 +1,130 @@
 import sys
+import json
 import requests
-import threading
-import webbrowser
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QScrollArea, QFrame, QGridLayout
-)
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt
+from io import BytesIO
+from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                             QLineEdit, QPushButton, QListWidget, QListWidgetItem, QTextBrowser)
+from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtCore import Qt, QFile, QTextStream
+from user_profile import load_user_data, update_search_history
 
 
-class HistomendApp(QWidget):
+class HistomendDashboard(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Histomend - Your AI Documentary Buddy")
+        self.setWindowTitle("Histomend - Fantasy Dashboard")
+        self.setGeometry(200, 100, 1000, 600)
+        self.apply_theme()
 
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.setGeometry(int(screen.width() * 0.05), int(screen.height() * 0.05),
-                         int(screen.width() * 0.9), int(screen.height() * 0.85))
+        self.user_data = load_user_data()
+        self.init_ui()
 
-        self.main_layout = QVBoxLayout()
-        self.create_search_bar()
-        self.create_results_area()
-        self.setLayout(self.main_layout)
+    def apply_theme(self):
+        file = QFile("frontend/styles/theme.qss")  # Adjust path if needed
+        if file.open(QFile.ReadOnly | QFile.Text):
+            stream = QTextStream(file)
+            self.setStyleSheet(stream.readAll())
 
-    def create_search_bar(self):
-        self.search_layout = QHBoxLayout()
+    def init_ui(self):
+        main_layout = QVBoxLayout()
 
+        # User Panel
+        user_panel = QHBoxLayout()
+        self.username_label = QLabel(f"Welcome, {self.user_data['username']} 🧙‍♂️")
+        self.username_label.setFont(QFont("Consolas", 14))
+        user_panel.addWidget(self.username_label)
+        user_panel.addStretch()
+
+        # Search Bar
+        search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Enter a historical topic...")
-        self.search_input.setFixedHeight(40)
-
+        self.search_input.setPlaceholderText("Search for educational videos...")
         self.search_button = QPushButton("Search")
-        self.search_button.setFixedHeight(40)
+        self.search_button.clicked.connect(self.perform_search)
 
-        self.search_layout.addWidget(self.search_input)
-        self.search_layout.addWidget(self.search_button)
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.search_button)
 
-        self.main_layout.addLayout(self.search_layout)
-        self.search_button.clicked.connect(self.get_suggestions)
+        # Video Results
+        self.results_list = QListWidget()
 
-    def create_results_area(self):
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
+        # Stats Panel
+        stats_layout = QHBoxLayout()
+        self.stats_label = QLabel(self.format_stats())
+        self.stats_label.setFont(QFont("Consolas", 10))
+        stats_layout.addWidget(self.stats_label)
+        stats_layout.addStretch()
 
-        self.results_container = QWidget()
-        self.results_layout = QGridLayout()
-        self.results_layout.setSpacing(20)
+        main_layout.addLayout(user_panel)
+        main_layout.addLayout(search_layout)
+        main_layout.addWidget(self.results_list)
+        main_layout.addLayout(stats_layout)
+        self.setLayout(main_layout)
 
-        self.results_container.setLayout(self.results_layout)
-        self.scroll_area.setWidget(self.results_container)
+    def perform_search(self):
+        query = self.search_input.text().strip()
+        if not query:
+            return
 
-        self.main_layout.addWidget(self.scroll_area)
-
-    def get_suggestions(self):
-        topic = self.search_input.text()
-        response = requests.post("http://127.0.0.1:5000/suggest", json={"query": topic})
-
-        # Clear previous results
-        for i in reversed(range(self.results_layout.count())):
-            widget = self.results_layout.itemAt(i).widget()
-            if widget:
-                widget.setParent(None)
-
-        if response.status_code == 200:
-            data = response.json()
-            for index, vid in enumerate(data["suggestions"]):
-                self.display_result(index, vid)
-        else:
-            error_label = QLabel("Error retrieving suggestions.")
-            self.results_layout.addWidget(error_label)
-
-    def display_result(self, index, vid):
-        title, description, thumbnail_url, video_url = vid
-
-        container = QFrame()
-        container.setFrameShape(QFrame.Box)
-        container.setLineWidth(1)
-        layout = QVBoxLayout()
-
-        # Thumbnail
-        thumb = QLabel()
-        thumb.setFixedSize(320, 180)
-        thumb.setCursor(Qt.PointingHandCursor)
+        update_search_history(query)
+        self.user_data = load_user_data()
+        self.stats_label.setText(self.format_stats())
+        self.results_list.clear()
 
         try:
-            response = requests.get(thumbnail_url)
+            response = requests.post("http://127.0.0.1:5000/suggest", json={"query": query})
             response.raise_for_status()
-            pixmap = QPixmap()
-            pixmap.loadFromData(response.content)
-            thumb.setPixmap(pixmap.scaled(320, 180, Qt.KeepAspectRatio))
+            results = response.json().get("suggestions", [])
         except Exception as e:
-            thumb.setText("Image Load Error")
-            print("Image Load Error:", e)
+            self.results_list.addItem(QListWidgetItem(f"Error fetching videos: {e}"))
+            return
 
-        # Open in browser using thread
-        def open_video():
-            webbrowser.open_new_tab(video_url)
+        for title, desc, thumb_url, url in results:
+            item_widget = QWidget()
+            layout = QVBoxLayout()
 
-        thumb.mousePressEvent = lambda e: threading.Thread(target=open_video).start()
-        layout.addWidget(thumb)
+            # Thumbnail
+            thumb_label = QLabel()
+            try:
+                img_data = requests.get(thumb_url).content
+                pixmap = QPixmap()
+                pixmap.loadFromData(img_data)
+                thumb_label.setPixmap(pixmap.scaledToHeight(100, Qt.SmoothTransformation))
+            except:
+                thumb_label.setText("[Thumbnail not available]")
 
-        # Title label
-        title_label = QLabel(f"<u>{title}</u>")
-        title_label.setStyleSheet("color: #1a73e8;")
-        title_label.setCursor(Qt.PointingHandCursor)
-        title_label.mousePressEvent = lambda e: threading.Thread(target=open_video).start()
-        layout.addWidget(title_label)
+            # Title, Description, URL
+            title_label = QLabel(f"<b>{title}</b>")
+            title_label.setWordWrap(True)
 
-        # Description
-        desc = QLabel(description)
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+            desc_label = QLabel(desc)
+            desc_label.setWordWrap(True)
 
-        container.setLayout(layout)
-        self.results_layout.addWidget(container, index // 2, index % 2)
+            url_label = QLabel(f'<a href="{url}">{url}</a>')
+            url_label.setOpenExternalLinks(True)
+
+            layout.addWidget(thumb_label)
+            layout.addWidget(title_label)
+            layout.addWidget(desc_label)
+            layout.addWidget(url_label)
+
+            item_widget.setLayout(layout)
+            list_item = QListWidgetItem()
+            list_item.setSizeHint(item_widget.sizeHint())
+
+            self.results_list.addItem(list_item)
+            self.results_list.setItemWidget(list_item, item_widget)
+
+    def format_stats(self):
+        stats = self.user_data.get("stats", {})
+        total = stats.get("total_searches", 0)
+        last = self.user_data.get("last_active", "N/A")
+        most = self.user_data.get("most_searched", "N/A")
+        return f"Total Searches: {total} | Last Active: {last} | Most Searched: {most}"
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = HistomendApp()
-    window.show()
+    dashboard = HistomendDashboard()
+    dashboard.show()
     sys.exit(app.exec_())
