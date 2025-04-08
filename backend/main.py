@@ -1,15 +1,28 @@
 from flask import Flask, request, jsonify
-import random
+from googleapiclient.discovery import build
 
 app = Flask(__name__)
 
-# Mock historical database (we'll later replace this with an API)
-documentaries = {
-    "world war": ["The War (2007)", "World War II in Colour", "Apocalypse: The Second World War"],
-    "ancient egypt": ["Secrets of the Pharaohs", "Egypt's Lost Queens", "The Story of Egypt"],
-    "cold war": ["The Cold War - CNN", "The Fog of War", "Commanding Heights"],
-    "india": ["The Story of India", "Gandhi (1982)", "Indus: The Unvoiced Civilization"]
-}
+# 🔑 Replace this with your actual API key
+YOUTUBE_API_KEY = "YOUR_API_KEY"
+
+def search_youtube(query, max_results=5):
+    youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+    request = youtube.search().list(
+        q=f"{query} history documentary",
+        part="snippet",
+        type="video",
+        maxResults=max_results
+    )
+    response = request.execute()
+
+    videos = []
+    for item in response['items']:
+        title = item['snippet']['title']
+        video_id = item['id']['videoId']
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        videos.append(f"{title} - {url}")
+    return videos
 
 @app.route('/')
 def home():
@@ -20,17 +33,11 @@ def suggest():
     data = request.get_json()
     query = data.get("query", "").lower()
 
-    # Find suggestions
-    suggestions = []
-    for topic, films in documentaries.items():
-        if topic in query:
-            suggestions = films
-            break
-
-    if not suggestions:
-        suggestions = random.choice(list(documentaries.values()))
-
-    return jsonify({"suggestions": suggestions})
+    try:
+        suggestions = search_youtube(query)
+        return jsonify({"suggestions": suggestions})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
