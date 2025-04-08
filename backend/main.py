@@ -1,10 +1,15 @@
 from flask import Flask, request, jsonify
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
+import os
+
+# 🔓 Load environment variables from .env
+load_dotenv()
 
 app = Flask(__name__)
 
-# 🔑 Replace this with your actual API key
-YOUTUBE_API_KEY = "AIzaSyB0W8aYkkLfKa9ZacjKX0nO4HFWBmJXogs"
+# 🗝️ Get the key from environment
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 def search_youtube(query, max_results=5):
     youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
